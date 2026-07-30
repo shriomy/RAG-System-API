@@ -101,14 +101,6 @@ class RetrievalService:
         )
         return final
 
-    async def count_indexed_chunks(self, user_id: str, assistant_id: str) -> int:
-        """How many chunks this assistant can draw on. Used by /knowledge stats."""
-        for source in self._sources:
-            counter = getattr(source, "count", None)
-            if callable(counter):
-                return await counter(user_id, assistant_id)
-        return 0
-
     # ======================================================================
     # Stages
     # ======================================================================

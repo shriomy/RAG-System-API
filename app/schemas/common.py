@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Generic, TypeVar
+from typing import Any
 
 from pydantic import BaseModel, Field
-
-T = TypeVar("T")
 
 
 class MessageResponse(BaseModel):
@@ -14,15 +12,6 @@ class MessageResponse(BaseModel):
 
     message: str
     details: dict[str, Any] | None = None
-
-
-class ListResponse(BaseModel, Generic[T]):
-    items: list[T]
-    total: int = 0
-
-    @classmethod
-    def of(cls, items: list[T]) -> "ListResponse[T]":
-        return cls(items=items, total=len(items))
 
 
 class ErrorDetail(BaseModel):

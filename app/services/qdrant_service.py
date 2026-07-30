@@ -13,6 +13,7 @@ unaffected.
 from __future__ import annotations
 
 import uuid
+import warnings
 from typing import Any, Sequence
 
 from qdrant_client import AsyncQdrantClient
@@ -49,11 +50,20 @@ def point_id(file_id: str, chunk_index: int) -> str:
 
 
 class QdrantService:
-    def __init__(self, settings: Settings, *, vector_size: int) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        vector_size: int,
+        client: AsyncQdrantClient | None = None,
+    ) -> None:
+        """`client` is injectable so tests can use Qdrant's embedded mode, and so
+        an alternative transport (gRPC, Qdrant Cloud with custom TLS) can be
+        supplied without subclassing."""
         self._settings = settings
         self._collection = settings.qdrant_collection
         self._vector_size = vector_size
-        self._client = AsyncQdrantClient(
+        self._client = client or AsyncQdrantClient(
             url=settings.qdrant_url,
             api_key=settings.qdrant_api_key,
             timeout=int(settings.qdrant_timeout_seconds),
@@ -127,12 +137,16 @@ class QdrantService:
     async def _ensure_payload_indexes(self) -> None:
         for field in _INDEXED_FIELDS:
             try:
-                await self._client.create_payload_index(
-                    collection_name=self._collection,
-                    field_name=field,
-                    field_schema=qmodels.PayloadSchemaType.KEYWORD,
-                    wait=True,
-                )
+                with warnings.catch_warnings():
+                    # Embedded/local Qdrant warns that indexes are a no-op there.
+                    # Filters still work; only the speed-up is absent.
+                    warnings.simplefilter("ignore", UserWarning)
+                    await self._client.create_payload_index(
+                        collection_name=self._collection,
+                        field_name=field,
+                        field_schema=qmodels.PayloadSchemaType.KEYWORD,
+                        wait=True,
+                    )
             except UnexpectedResponse:
                 # Already exists — Qdrant returns 4xx rather than a no-op.
                 continue

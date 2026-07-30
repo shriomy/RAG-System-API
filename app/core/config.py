@@ -19,6 +19,12 @@ EmbeddingProvider = Literal["fastembed", "openai", "voyage"]
 RerankerProvider = Literal["none", "cohere"]
 CacheProvider = Literal["none", "redis"]
 
+#: pydantic-settings JSON-decodes complex types (list, dict) straight from the
+#: env var before any validator runs, so `FOO=a,b` would raise a JSONDecodeError.
+#: NoDecode suppresses that and hands the raw string to our `_parse_csv`
+#: validator, which is what lets these be plain comma-separated env vars.
+CsvList = Annotated[list[str], NoDecode]
+
 
 def _csv(value: Any) -> list[str]:
     """Parse a comma-separated env var into a clean list of strings."""
@@ -43,7 +49,7 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
     api_v1_prefix: str = "/api/v1"
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    cors_origins: CsvList = Field(default_factory=lambda: ["http://localhost:3000"])
 
     # -- supabase ------------------------------------------------------------
     supabase_url: str
@@ -108,11 +114,11 @@ class Settings(BaseSettings):
 
     # -- guardrails ----------------------------------------------------------
     guardrails_enabled: bool = False
-    guardrails: list[str] = Field(default_factory=list)
+    guardrails: CsvList = Field(default_factory=list)
 
     # -- tools / mcp ---------------------------------------------------------
     tools_enabled: bool = False
-    enabled_tools: list[str] = Field(default_factory=list)
+    enabled_tools: CsvList = Field(default_factory=list)
     mcp_enabled: bool = False
     mcp_servers: dict[str, Any] = Field(default_factory=dict)
 

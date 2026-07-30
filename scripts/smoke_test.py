@@ -109,11 +109,15 @@ def test_routes() -> None:
     print("\n[2] FastAPI routes")
     from app.main import app
 
-    paths = {
-        (route.path, tuple(sorted(getattr(route, "methods", []) or [])))
-        for route in app.routes
+    # Read the OpenAPI schema rather than walking app.routes: newer Starlette
+    # wraps included routers in objects without a `.path`, and the schema is the
+    # authoritative view of what is actually served.
+    schema = app.openapi()
+    paths: dict[str, set[str]] = {
+        path: {method.upper() for method in operations}
+        for path, operations in schema["paths"].items()
     }
-    flat = {path for path, _ in paths}
+    flat = set(paths)
 
     expected = [
         ("/health", "GET"),
@@ -148,9 +152,8 @@ def test_routes() -> None:
         if path not in flat:
             missing.append(f"{method} {path} (path absent)")
             continue
-        methods = {m for p, ms in paths if p == path for m in ms}
-        if method not in methods:
-            missing.append(f"{method} {path} (methods={sorted(methods)})")
+        if method not in paths[path]:
+            missing.append(f"{method} {path} (methods={sorted(paths[path])})")
 
     check(f"{len(expected)} expected routes registered", not missing, "; ".join(missing))
 

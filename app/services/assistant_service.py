@@ -140,21 +140,6 @@ class AssistantService:
         return await self.get_assistant(assistant_id, user_id)
 
     # ======================================================================
-    # Config views
-    # ======================================================================
-
-    def retrieval_config_for(self, assistant: Assistant) -> RetrievalConfig:
-        """Merge global retrieval defaults with the assistant's overrides."""
-        defaults = RetrievalConfig(
-            top_k=self._settings.retrieval_top_k,
-            candidate_k=self._settings.retrieval_candidate_k,
-            score_threshold=self._settings.retrieval_score_threshold,
-            reranker=self._settings.reranker_provider,
-            sources=["vector"],
-        )
-        return assistant.to_retrieval_config(defaults=defaults)
-
-    # ======================================================================
     # Internals
     # ======================================================================
 
