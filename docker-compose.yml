@@ -1,0 +1,25 @@
+# Local infrastructure. Postgres/Storage/Auth live in Supabase, so all we need
+# locally is the vector store (and Redis, for when you flip CACHE_PROVIDER).
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.5
+    container_name: rag-qdrant
+    ports:
+      - "6333:6333" # REST
+      - "6334:6334" # gRPC
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+    restart: unless-stopped
+
+  # Not used until CACHE_PROVIDER=redis. Started by:
+  #   docker compose --profile cache up -d
+  redis:
+    image: redis:7-alpine
+    container_name: rag-redis
+    profiles: ["cache"]
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis_data:/data
+    restart: unless-stopped

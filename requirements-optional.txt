@@ -1,0 +1,17 @@
+# Install these when you switch on the corresponding feature flag.
+# Nothing in app/ imports them at module scope, so the app runs without them.
+
+# CACHE_PROVIDER=redis
+redis>=5.2.0
+
+# LANGSMITH_TRACING=true
+langsmith>=0.2.0
+
+# RERANKER_PROVIDER=cohere
+cohere>=5.13.0
+
+# MCP_ENABLED=true
+langchain-mcp-adapters>=0.1.0
+
+# EMBEDDING_PROVIDER=voyage
+langchain-voyageai>=0.1.4
