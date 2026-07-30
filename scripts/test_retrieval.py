@@ -11,6 +11,11 @@ Also verifies the property that matters most for a multi-tenant RAG system:
 one user/assistant can never retrieve another's chunks.
 
 Run:  .venv\\Scripts\\python.exe scripts\\test_retrieval.py
+      .venv\\Scripts\\python.exe scripts\\test_retrieval.py --server
+
+`--server` runs against the real Qdrant at QDRANT_URL instead of embedded mode,
+which additionally exercises payload indexes (a no-op in embedded mode). It uses
+a throwaway collection and deletes it afterwards.
 """
 
 from __future__ import annotations
@@ -65,8 +70,11 @@ Only the steering committee may discuss these figures.
 
 
 async def main() -> int:
+    use_server = "--server" in sys.argv
+
     print("=" * 70)
-    print("Retrieval integration test (embedded Qdrant + real embeddings)")
+    mode = "real Qdrant server" if use_server else "embedded Qdrant"
+    print(f"Retrieval integration test ({mode} + real embeddings)")
     print("=" * 70)
 
     from qdrant_client import AsyncQdrantClient
@@ -96,13 +104,40 @@ async def main() -> int:
     )
 
     print("\n[2] Qdrant collection")
+    if use_server:
+        # Throwaway collection so a real deployment's data is never touched.
+        settings = settings.model_copy(
+            update={"qdrant_collection": "rag_documents_selftest"}
+        )
+        client = AsyncQdrantClient(
+            url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key,
+            timeout=int(settings.qdrant_timeout_seconds),
+        )
+        try:
+            await client.delete_collection(settings.qdrant_collection)
+        except Exception:
+            pass  # first run — nothing to clean up
+        print(f"       using collection '{settings.qdrant_collection}' at {settings.qdrant_url}")
+    else:
+        client = AsyncQdrantClient(location=":memory:")
+
     qdrant = QdrantService(
-        settings,
-        vector_size=embedding_service.dimension,
-        client=AsyncQdrantClient(location=":memory:"),
+        settings, vector_size=embedding_service.dimension, client=client
     )
     await qdrant.ensure_ready()
     check("collection created", await qdrant.health())
+
+    if use_server:
+        # Payload indexes are what keep tenant filters fast at scale; embedded
+        # mode silently ignores them, so this can only be verified on a server.
+        info = await client.get_collection(settings.qdrant_collection)
+        indexed = set((info.payload_schema or {}).keys())
+        check(
+            "payload indexes created for tenant fields",
+            {"user_id", "assistant_id", "file_id"}.issubset(indexed),
+            f"indexed={sorted(indexed)}",
+        )
 
     print("\n[3] Ingest: load -> split -> embed -> upsert")
 
@@ -258,6 +293,14 @@ async def main() -> int:
         "the other user's data is untouched",
         await qdrant.count({"user_id": "user-B"}) > 0,
     )
+
+    if use_server:
+        # Leave no test data behind in a real deployment.
+        try:
+            await client.delete_collection(settings.qdrant_collection)
+            print(f"\n       cleaned up '{settings.qdrant_collection}'")
+        except Exception as exc:
+            print(f"\n       could not clean up test collection: {exc}")
 
     await qdrant.aclose()
 

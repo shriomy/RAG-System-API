@@ -68,7 +68,22 @@ In the Supabase SQL editor, run in order:
 docker compose up -d qdrant
 ```
 
-### 5. Start the API
+### 5. Verify the setup
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_env.py
+```
+
+This checks your `.env`, Supabase credentials, **whether the migrations have
+actually been applied** (table by table, column by column), the storage bucket,
+the JWT secret, Qdrant, and OpenRouter — and tells you how to fix whatever is
+wrong. Run it whenever something behaves oddly; it is much faster than reading a
+traceback.
+
+It makes one tiny OpenRouter completion (5 tokens) to prove the model resolves.
+Pass `--skip-llm` to avoid that.
+
+### 6. Start the API
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
@@ -79,6 +94,17 @@ docker compose up -d qdrant
   <http://localhost:8000/ready>
 
 First start downloads the ~130 MB embedding model. After that it is fully local.
+
+### 7. Start the frontend
+
+```powershell
+cd ..\RAG-SaaS-UI
+npm install      # first time only
+npm run dev
+```
+
+Open <http://localhost:3000>. The frontend's `VITE_API_URL` must match the origin
+in the backend's `CORS_ORIGINS`.
 
 ---
 
@@ -323,88 +349,59 @@ Every error uses one envelope:
 
 ---
 
-## Wiring the frontend
+## Frontend integration
 
-Your `chat.tsx` currently simulates the response
-(`RAG-SaaS-UI/src/routes/_app/chat.tsx`, the `handleSend` function). Replace the
-simulation with the SSE stream — the backend persists both messages itself, so
-the frontend no longer inserts them:
+`RAG-SaaS-UI` is wired to this backend. Supabase is still used in the browser for
+**authentication only** — its access token is forwarded as a bearer token and
+verified here. No table or storage access happens client-side any more, so the
+browser never needs elevated credentials and server-side invariants (vector
+cleanup on delete, the single-active-assistant rule, ingestion) can't be bypassed.
 
-```ts
-// RAG-SaaS-UI/.env
-// VITE_API_URL=http://localhost:8000
+### What changed
 
-const { data: { session } } = await supabase.auth.getSession();
+| File | Change |
+| --- | --- |
+| `src/lib/api.ts` | **New.** Typed client for every endpoint, plus the SSE `streamChat` generator and `ApiError` |
+| `src/lib/queries.ts` | Rewritten: React Query hooks now call the API instead of `supabase.from(...)` |
+| `src/types.ts` | Added `model`/`temperature`/`max_tokens`/`config` to `Assistant`, `chunk_count`/`error_message`/`indexed_at` to `KnowledgeFile`, plus chat-event, memory and citation types |
+| `src/lib/models.ts` | **New.** Model-picker suggestions (a convenience datalist, not a whitelist) |
+| `src/vite-env.d.ts` | **New.** Types `VITE_API_URL` |
+| `src/routes/_app/chat.tsx` | Real SSE streaming, Stop button, source citations, token usage, error surfacing |
+| `src/routes/_app/settings.tsx` | Uploads via the API, live status polling, re-index/delete, ingestion stats, and a model config panel |
+| `src/routes/_app/assistants.tsx` | Model column and detail rows; API-error handling |
+| `.env` | Added `VITE_API_URL=http://localhost:8000` |
 
-const res = await fetch(`${import.meta.env.VITE_API_URL}/api/v1/chat`, {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${session!.access_token}`,
-  },
-  body: JSON.stringify({
-    question: content,
-    assistant_id: activeAssistantId,
-    conversation_id: activeConversationId, // omit to start a new conversation
-  }),
-});
+### How a chat turn now flows
 
-const reader = res.body!.getReader();
-const decoder = new TextDecoder();
-let buffer = "";
-let streamed = "";
+1. `chat.tsx` calls `streamChat({ question, assistant_id, conversation_id })`.
+2. `conversation_id` is omitted for a new chat — the backend creates the row and
+   returns its id in the `start` event, which the UI adopts.
+3. `token` events append to a streaming bubble. The user's own message is rendered
+   optimistically, because the backend persists both messages only after
+   generation completes.
+4. On `done`, the UI refetches messages/conversations/memory and drops the
+   optimistic bubbles, so what you see is what was saved. Citations and token
+   usage from the event are shown under the answer.
+5. A `revision` event (guardrails, when enabled) replaces the rendered text.
 
-while (true) {
-  const { done, value } = await reader.read();
-  if (done) break;
-  buffer += decoder.decode(value, { stream: true });
+"New chat" no longer creates an empty conversation — it just clears local state,
+so an abandoned draft leaves nothing in the sidebar.
 
-  // Frames are separated by a blank line.
-  const frames = buffer.split("\n\n");
-  buffer = frames.pop() ?? "";
+**Stop button:** aborts reading the stream. The backend deliberately lets the run
+finish so the exchange is still saved; the UI refetches afterwards, so the
+complete answer appears in history. Stopping saves tokens on rendering, not on
+generation.
 
-  for (const frame of frames) {
-    const payload = frame.replace(/^data:\s*/, "").trim();
-    if (!payload || payload === "[DONE]") continue;
-    const event = JSON.parse(payload);
+### Uploads
 
-    switch (event.type) {
-      case "start":
-        // Adopt the id when the backend created the conversation for us.
-        setActiveConversationId(event.conversation_id);
-        break;
-      case "token":
-        streamed += event.content;
-        setStreamingText(streamed); // render progressively
-        break;
-      case "revision":
-        streamed = event.content;   // a guardrail rewrote the answer
-        setStreamingText(streamed);
-        break;
-      case "done":
-        setStreamingText("");
-        // Messages are already persisted — just refetch.
-        await queryClient.invalidateQueries({ queryKey: ["messages", event.conversation_id] });
-        await queryClient.invalidateQueries({ queryKey: ["conversations", activeAssistantId] });
-        break;
-      case "error":
-        console.error(event.code, event.message);
-        break;
-    }
-  }
-}
-```
+`settings.tsx` uploads through `POST /api/v1/knowledge/upload`, which stores the
+blob **and** starts indexing. The file list polls every 2s while anything is
+`processing` and stops once everything settles. Failed files show their
+`error_message` inline with a re-index button.
 
-Two other frontend touch-ups worth making:
-
-- **Uploads.** Either switch `settings.tsx` to `POST /api/v1/knowledge/upload`
-  (multipart), or keep the direct-to-storage upload and call
-  `POST /api/v1/knowledge/index-pending?assistant_id=…` afterwards. Without one of
-  these, files are stored but never embedded and stay at `status: "processing"`.
-- **`types.ts`.** `Assistant` is missing the new `model`, `temperature`,
-  `max_tokens` and `config` fields, and `KnowledgeFile` is missing `chunk_count`
-  and `error_message`. Nothing breaks without them, but you cannot build a model
-  picker until they are added.
+The older direct-to-Supabase-Storage path is no longer used by the UI. If you
+reintroduce it, remember to call `POST /api/v1/knowledge/index-pending` afterwards
+— otherwise files are stored but never embedded.
 
 ---
 
@@ -563,12 +560,25 @@ JSON-serialisable.
 
 ## Testing
 
-Three self-contained scripts. No credentials, no running services, no network.
-
 ```powershell
+# Preflight: your actual credentials and services (see Quick start step 5)
+.\.venv\Scripts\python.exe scripts\check_env.py
+
+# Self-contained — no credentials, no running services, no network
 .\.venv\Scripts\python.exe scripts\smoke_test.py      # imports, wiring, graph, prompts, auth
 .\.venv\Scripts\python.exe scripts\test_retrieval.py  # real embeddings + embedded Qdrant
 .\.venv\Scripts\python.exe scripts\test_api.py        # real ASGI cycle, auth, SSE, CORS
+
+# Same retrieval test against a running Qdrant (also checks payload indexes,
+# which embedded mode ignores). Uses a throwaway collection and cleans up.
+.\.venv\Scripts\python.exe scripts\test_retrieval.py --server
+```
+
+Frontend:
+
+```powershell
+cd ..\RAG-SaaS-UI
+npm run typecheck
 ```
 
 What they cover:
@@ -585,10 +595,15 @@ What they cover:
   auth-rejection paths, valid-token flow, validation envelopes, CORS preflight,
   SSE frame shape and termination, OpenAPI schema.
 
-All currently pass. What they do **not** cover: a real OpenRouter call, real
-Supabase reads/writes, and a real Qdrant server — those need your credentials.
-The end-to-end path is exercised with fakes at the Supabase and OpenRouter
-boundaries only.
+All pass, as does the frontend typecheck and production build.
+
+**Verified live:** OpenRouter (key valid, `openai/gpt-4o-mini` returns a
+completion) and Qdrant on a real server (collection creation, payload indexes,
+ingest → search → delete, tenant isolation).
+
+**Not yet verified live:** real Supabase reads and writes, and therefore a full
+browser-to-database chat turn — both need the two Supabase secrets. Everything on
+that path is exercised with a fake at the Supabase boundary.
 
 ---
 
