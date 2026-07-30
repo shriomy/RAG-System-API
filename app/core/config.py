@@ -10,10 +10,10 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 EmbeddingProvider = Literal["fastembed", "openai", "voyage"]
 RerankerProvider = Literal["none", "cohere"]
