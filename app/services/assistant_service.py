@@ -7,7 +7,7 @@ from typing import Any
 from app.core.config import Settings
 from app.core.errors import NotFoundError, ValidationError
 from app.core.logging import get_logger
-from app.domain.models import Assistant, RetrievalConfig
+from app.domain.models import Assistant
 from app.domain.ports import Cache
 from app.infrastructure.cache.factory import assistant_key, assistant_list_key
 from app.repositories.assistant_repository import AssistantRepository

@@ -52,19 +52,35 @@ def tenant_filter(**equals: Any) -> qmodels.Filter:
     return qmodels.Filter(must=conditions)
 
 
+def make_sync_client(settings: Settings) -> QdrantClient:
+    """A synchronous Qdrant client, which QdrantVectorStore requires.
+
+    The CALLER OWNS its lifecycle and must `close()` it. Exposed as its own
+    function rather than being created inside the factories below so that a
+    long-lived client cannot be leaked by a per-request call.
+    """
+    return QdrantClient(
+        url=settings.qdrant_url,
+        api_key=settings.qdrant_api_key,
+        timeout=int(settings.qdrant_timeout_seconds),
+    )
+
+
 def build_langchain_vectorstore(
     settings: Settings,
     embeddings: Embeddings,
     *,
+    client: QdrantClient,
     async_client: AsyncQdrantClient | None = None,
 ) -> QdrantVectorStore:
-    """Wrap the existing collection in a LangChain vector store."""
+    """Wrap the existing collection in a LangChain vector store.
+
+    Pass `client` from `make_sync_client()` (or reuse one you already hold) and
+    `async_client` from `QdrantService.client` so async paths do not open a
+    second connection pool.
+    """
     return QdrantVectorStore(
-        client=QdrantClient(
-            url=settings.qdrant_url,
-            api_key=settings.qdrant_api_key,
-            timeout=int(settings.qdrant_timeout_seconds),
-        ),
+        client=client,
         async_client=async_client,
         collection_name=settings.qdrant_collection,
         embedding=embeddings,
@@ -77,13 +93,20 @@ def build_langchain_retriever(
     settings: Settings,
     embeddings: Embeddings,
     *,
+    client: QdrantClient,
     user_id: str,
     assistant_id: str,
     top_k: int,
     async_client: AsyncQdrantClient | None = None,
 ) -> BaseRetriever:
-    """A tenant-scoped LangChain retriever over the shared collection."""
-    store = build_langchain_vectorstore(settings, embeddings, async_client=async_client)
+    """A tenant-scoped LangChain retriever over the shared collection.
+
+    The tenant filter is baked in here, not left to the caller — a retriever
+    handed to a LangChain chain must not be able to cross tenants.
+    """
+    store = build_langchain_vectorstore(
+        settings, embeddings, client=client, async_client=async_client
+    )
     retriever: VectorStoreRetriever = store.as_retriever(
         search_kwargs={
             "k": top_k,
