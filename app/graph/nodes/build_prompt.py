@@ -31,6 +31,7 @@ def make_build_prompt_node():
             user_summary=state.get("user_summary", ""),
             conversation_summary=state.get("conversation_summary", ""),
             recent_messages=recent,
+            knowledge_scope=state.get("knowledge_scope") or {},
         )
 
         logger.debug(

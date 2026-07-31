@@ -6,6 +6,7 @@ keep dependencies explicit and each node trivially testable with fakes.
 """
 
 from app.graph.nodes.build_prompt import make_build_prompt_node
+from app.graph.nodes.classify_knowledge_scope import make_classify_knowledge_scope_node
 from app.graph.nodes.llm import make_llm_node
 from app.graph.nodes.load_assistant import make_load_assistant_node
 from app.graph.nodes.load_memory import make_load_memory_node
@@ -15,6 +16,7 @@ from app.graph.nodes.update_memory import make_update_memory_node
 
 __all__ = [
     "make_build_prompt_node",
+    "make_classify_knowledge_scope_node",
     "make_llm_node",
     "make_load_assistant_node",
     "make_load_memory_node",

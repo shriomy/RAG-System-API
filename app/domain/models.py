@@ -121,6 +121,21 @@ class Assistant(_Model):
             sources=raw.get("sources", defaults.sources) or [],
         )
 
+    def knowledge_scope_context(self) -> str:
+        """Return the assistant-specific context used by the scope classifier."""
+        raw = self.config.get("knowledge_scope", {}) if isinstance(self.config, dict) else {}
+        if isinstance(raw, dict):
+            for key in ("summary", "context", "description", "notes"):
+                value = raw.get(key)
+                if value and str(value).strip():
+                    return str(value).strip()
+
+        legacy = self.config.get("knowledge_summary") if isinstance(self.config, dict) else None
+        if legacy and str(legacy).strip():
+            return str(legacy).strip()
+
+        return self.system_prompt.strip()
+
     @property
     def enabled_tools(self) -> list[str]:
         raw = self.config.get("tools", []) if isinstance(self.config, dict) else []

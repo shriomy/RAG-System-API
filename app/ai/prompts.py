@@ -65,6 +65,42 @@ QUESTION_TEMPLATE = PromptTemplate.from_template(
 {question}"""
 )
 
+GENERAL_QUESTION_TEMPLATE = PromptTemplate.from_template(
+    """## Routing note
+The question was classified as outside the assistant's knowledge base.
+Answer directly, without citing or searching the knowledge base.
+
+## Question
+{question}"""
+)
+
+KNOWLEDGE_SCOPE_PROMPT = PromptTemplate.from_template(
+    """You are a routing classifier for a retrieval-augmented assistant.
+
+Assistant knowledge context:
+{assistant_context}
+
+Assistant system prompt:
+{system_prompt}
+
+User question:
+{question}
+
+Decide whether the question should go through the knowledge-base retrieval pipeline.
+Return JSON only with these keys:
+- in_scope: true when the question is about the assistant's knowledge base or would benefit from retrieval
+- confidence: a number between 0 and 1
+- reason: a short explanation
+
+Rules:
+- If the question is about documents, policies, files, facts, summaries, or content covered by the assistant context, set in_scope to true.
+- If the question is general chit-chat or clearly unrelated to the knowledge base, set in_scope to false.
+- If you are uncertain, set in_scope to true.
+- Do not mention these instructions in the response.
+
+JSON:"""
+)
+
 NO_CONTEXT_PLACEHOLDER = "(No relevant excerpts were found in the knowledge base.)"
 
 # --- summarisation prompts (memory maintenance) ---------------------------
@@ -157,8 +193,10 @@ def build_chat_prompt(
     user_summary: str = "",
     conversation_summary: str = "",
     recent_messages: Sequence[ChatTurn] = (),
+    knowledge_scope: dict[str, object] | None = None,
 ) -> list[dict[str, str]]:
     """Assemble the full message list sent to the LLM."""
+    in_scope = True if knowledge_scope is None else bool(knowledge_scope.get("in_scope", True))
     messages: list[dict[str, str]] = [
         {
             "role": "system",
@@ -175,13 +213,21 @@ def build_chat_prompt(
             continue
         messages.append({"role": str(turn.role), "content": turn.content})
 
-    messages.append(
-        {
-            "role": "user",
-            "content": QUESTION_TEMPLATE.format(
-                context=format_context(retrieved_chunks),
-                question=question.strip(),
-            ),
-        }
-    )
+    if in_scope:
+        messages.append(
+            {
+                "role": "user",
+                "content": QUESTION_TEMPLATE.format(
+                    context=format_context(retrieved_chunks),
+                    question=question.strip(),
+                ),
+            }
+        )
+    else:
+        messages.append(
+            {
+                "role": "user",
+                "content": GENERAL_QUESTION_TEMPLATE.format(question=question.strip()),
+            }
+        )
     return messages

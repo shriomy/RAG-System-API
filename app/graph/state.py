@@ -51,6 +51,8 @@ class AgentState(TypedDict, total=False):
     recent_messages: list[dict[str, str]]
     #: Serialised RetrievedChunks from the retrieval pipeline.
     retrieved_docs: list[dict[str, Any]]
+    #: Scope classifier result; controls whether retrieval runs.
+    knowledge_scope: Annotated[dict[str, Any], _replace]
     #: The assembled message list handed to the LLM.
     prompt_messages: list[dict[str, str]]
 
@@ -101,6 +103,7 @@ def initial_state(
         conversation_summary="",
         recent_messages=[],
         retrieved_docs=[],
+        knowledge_scope={},
         prompt_messages=[],
         answer="",
         usage={},
