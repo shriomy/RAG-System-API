@@ -35,8 +35,7 @@ SYSTEM_TEMPLATE = PromptTemplate.from_template(
 ## Grounding rules
 - Base your answer on the knowledge base excerpts below whenever they are relevant.
 - Cite the source filename inline, like [filename], when you use an excerpt.
-- If the excerpts do not contain the answer, say so plainly and answer from general
-  knowledge only if you can do so safely — never invent details, figures or quotes.
+- If the excerpts do not contain the answer, say it is not in the knowledge base.
 - Prefer the user's own terminology.
 {memory_block}{summary_block}"""
 )

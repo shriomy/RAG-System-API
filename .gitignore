@@ -1,5 +1,3 @@
-.env
-.env.local
 *.env
 !.env.example
 
@@ -24,5 +22,6 @@ qdrant_storage/
 redis_data/
 
 .idea/
-.vscode/
 .DS_Store
+config.bat
+node_modules
